@@ -1,6 +1,8 @@
 #if PBHANDLES_VRCSDK_PRESENT
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using VRC.SDK3.Dynamics.PhysBone.Components;
 
 namespace OpenSource.PhysBoneHandles
 {
@@ -30,6 +32,12 @@ namespace OpenSource.PhysBoneHandles
         private static float _time;
         private static bool _active;
 
+        // AnimationMode is a single global editor state, shared with the Animation window. If that
+        // window already has a preview open when we start, StartAnimationMode would nest and our
+        // StopAnimationMode would tear down *their* session, reverting whatever they were editing.
+        // So ownership is tracked: we only stop what we started.
+        private static bool _ownsAnimationMode;
+
         internal static bool HasClip => _clip != null;
         internal static bool IsActive => _active;
 
@@ -51,7 +59,7 @@ namespace OpenSource.PhysBoneHandles
 
         // Start sampling against `root`. Needs the avatar root, not the bone - a clip's curves
         // are addressed by path relative to the object the Animator sits on.
-        internal static void Begin(Transform root)
+        internal static void Begin(Transform root, IReadOnlyList<VRCPhysBone> previewedBones)
         {
             if (_clip == null || root == null || _active)
                 return;
@@ -71,9 +79,28 @@ namespace OpenSource.PhysBoneHandles
                 return;
             }
 
-            AnimationMode.StartAnimationMode();
+            if (AnimationMode.InAnimationMode())
+            {
+                // Someone else is already previewing - almost always the Animation window. Share
+                // the session rather than restarting it, and say so: their clip's properties are
+                // in the same modification set as ours and will be re-asserted every time we
+                // sample, which can look like the preview ignoring part of the pose.
+                _ownsAnimationMode = false;
+                Debug.LogWarning("[PhysBone Handles] The editor is already in animation preview mode " +
+                    "(usually the Animation window). The clip will still play, but the two previews " +
+                    "share one sampling session and can override each other. Close the Animation " +
+                    "window's preview for a clean read.");
+            }
+            else
+            {
+                AnimationMode.StartAnimationMode();
+                _ownsAnimationMode = true;
+            }
+
             _active = true;
             _time = 0f;
+
+            PhysBoneClipOverlap.Evaluate(_clip, _animator.transform, previewedBones);
         }
 
         internal static void Stop()
@@ -84,10 +111,14 @@ namespace OpenSource.PhysBoneHandles
             _active = false;
             _root = null;
             _animator = null;
+            PhysBoneClipOverlap.Clear();
 
-            // Returns everything the clip wrote to its pre-sampling values.
-            if (AnimationMode.InAnimationMode())
+            // Returns everything the clip wrote to its pre-sampling values. Only if the session is
+            // ours: stopping someone else's would revert their edits instead.
+            if (_ownsAnimationMode && AnimationMode.InAnimationMode())
                 AnimationMode.StopAnimationMode();
+
+            _ownsAnimationMode = false;
         }
 
         internal static void Reset()

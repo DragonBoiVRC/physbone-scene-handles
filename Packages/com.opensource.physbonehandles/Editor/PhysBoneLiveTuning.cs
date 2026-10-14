@@ -35,6 +35,32 @@ namespace OpenSource.PhysBoneHandles
     // What it deliberately does not touch: originalLocalPosition / originalLocalRotation. Those
     // hold the rest pose inside the solver, and UpdateChains leaves them alone - so re-applying
     // the config every step does not accumulate drift or move the chain's origin.
+    //
+    // And what it must never touch: `isAnimated`. 0.7.2 forced that field true on every previewed
+    // component while a clip was playing, and it was wrong twice over.
+    //
+    //   * `isAnimated` is a serialized user setting - the "Is Animated" checkbox on the PhysBone
+    //     inspector, tooltipped "Allows bone transforms to be animated. Each frame bone rest
+    //     position will be updated according to what was animated." Writing it from a preview
+    //     edited the avatar permanently: the rest-pose snapshot restores Transforms, not
+    //     component fields, so the tick survived Stop and changed in-game behaviour.
+    //
+    //   * It also caused the exact freeze it was meant to fix. With the flag set, the solver runs
+    //     SolveAnimation, which re-bases the chain's rest pose onto whatever the bone's local
+    //     rotation currently is:
+    //
+    //         if (HasChanged(transformData.prevLocalRotation, transformData.localRotation))
+    //             bone.originalLocalRotation = transformData.localRotation;
+    //
+    //     On a chain the clip does not animate - every hair or tail chain - the only thing that
+    //     changes those locals is the solver's own output from the previous step. So the spring's
+    //     target followed the bone, the restoring force went to zero, and the chain held whatever
+    //     bend it was in. The tolerance is 1e-4 per quaternion component, which any visible swing
+    //     clears, which is why it showed up "occasionally" - precisely once the avatar started
+    //     moving enough to matter.
+    //
+    // A chain whose bones really are keyframed does need that checkbox, and the preview now says
+    // so (PhysBoneClipOverlap) instead of ticking it for you.
     internal static class PhysBoneLiveTuning
     {
         // Called once per solver step, before the solve.
@@ -42,23 +68,11 @@ namespace OpenSource.PhysBoneHandles
         {
             if (bones != null)
             {
-                bool clipDriving = PhysBoneClipPlayback.IsActive;
                 for (int i = 0; i < bones.Count; i++)
                 {
                     VRCPhysBone pb = bones[i];
                     if (pb == null)
                         continue;
-
-                    // When a clip is driving the rig the chain must run SolveAnimation,
-                    // which is gated on chain.isAnimated. That flag is copied from the
-                    // component's isAnimated in UpdateChains. Many chains leave it false
-                    // because they are not normally animated; forcing it while the clip
-                    // is active is what makes the bones follow the clip instead of
-                    // holding in world space. The component value is not restored - the
-                    // preview is edit-mode only and the solver's copy is what matters, and
-                    // rest-pose restore puts the transforms back regardless.
-                    if (clipDriving && !pb.isAnimated)
-                        pb.isAnimated = true;
 
                     pb.ApplyConfigurationChanges();
                 }

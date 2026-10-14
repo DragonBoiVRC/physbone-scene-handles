@@ -1,6 +1,6 @@
 {
   "name": "com.opensource.physbonehandles",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "displayName": "PhysBone Scene Handles",
   "description": "Free, open-source batch scene-view handles for VRChat VRCPhysBoneCollider/VRCPhysBone/VRCContactSender/VRCContactReceiver, plus an Auto Collider Generator that fits body colliders from your avatar's mesh. Cross-platform (no license server, no OS check).",
   "unity": "2019.4",

@@ -1,6 +1,6 @@
 # Feature List
 
-Everything PhysBone Scene Handles does, as of **0.7.2**. Free, open source, cross-platform,
+Everything PhysBone Scene Handles does, as of **0.7.3**. Free, open source, cross-platform,
 no license key and no phone-home check.
 
 Covers four VRChat components: `VRCPhysBone`, `VRCPhysBoneCollider`, `VRCContactSender`,
@@ -148,7 +148,9 @@ clean again afterwards.
   stepped from `EditorApplication.update` on a fixed 1/60 s cadence.
 - **Pause, frame-step, reset.** `Step ▸` advances exactly one solver iteration — frame-stepping
   a settling bone is how you see precisely where it overshoots. Reset snaps back to rest and
-  keeps simulating from there.
+  keeps simulating from there; it re-registers the chains rather than only moving Transforms,
+  because the solver reinstates its own previous pose otherwise — so it also doubles as the
+  "unwedge this chain" button.
 - **Refresh rate: 72 / 90 / 120 / 144 Hz.** The same bone genuinely behaves differently at 72
   and 144, so the rate you actually play at is selectable.
 - **Test motions.** Sway, Gust, Circle, Drop, and avatar translation (Walk), with Amount and
@@ -157,7 +159,10 @@ clean again afterwards.
   accumulated.
 - **AnimationClip playback.** Drop one of the avatar's own clips in and the chain is tested
   against the motion it will actually see — "the hair clears the shoulder during the emote I'm
-  shipping", not "the hair looks fine when it sways". Needs an Animator on the avatar root.
+  shipping", not "the hair looks fine when it sways". Needs an Animator on the avatar root. If
+  the clip keyframes bones a previewed chain also simulates, the two would fight over the same
+  rotation and the chain can look stuck — the preview names those components and points at the
+  SDK setting for it (**Is Animated**) rather than changing your avatar for you.
 - **Grab and pose testing.** Click a bone to grab it, drag the handle to pull, right-click to
   let go. Goes through the SDK's own grab path, so `Allow Grabbing`, `Allow Posing` and the
   grab/pose filters apply exactly as they do in game — and a refusal is explained in the console
@@ -172,6 +177,11 @@ clean again afterwards.
   so freezing can never cause a swung pose to be restored onto your avatar.
 - **Live parameter readout.** `_Angle`, `_Stretch` and `_Squish` as bars plus `_IsGrabbed` /
   `_IsPosed` flags, in the component inspector — the same values your animator parameters see.
+- **Diagnostics dump.** `Tools > PhysBone Handles > Log Preview Diagnostics` prints, per chain,
+  the bone count, how many of those bones the solver actually simulates, the **Is Animated**
+  flag, the live `_Angle`/`_Stretch`/`_Squish`, and whether the active clip conflicts with the
+  chain. These are the values that tell apart the several ways a chain can sit still, so a bug
+  report can name the cause instead of describing the appearance.
 - **Inspector 3D viewport.** A `3D` toggle in the inspector renders the chain into a small
   orbitable viewport (drag to orbit, scroll to zoom), so the bone can be watched while the
   fields right below it are being changed.
@@ -199,8 +209,10 @@ live preview subsystem (section 8) is new in 0.7.0 and is compile-verified only 
 layout, the behaviour in motion, grab/pose interaction and the inspector viewport have not been
 click-tested. 0.7.1 fixes the preview not simulating at all: the solver is driven through the
 static `PhysBoneManager.Inst`, which only `Awake` sets and which therefore stays null in edit
-mode, so the registered chains were never stepped. 0.7.2 fixes a second preview failure where
-bones froze while a clip played (`isAnimated` / `configHasUpdated` were never pushed, so
-`SolveAnimation` never ran and `UpdateChains` never refreshed the cached `Bone`/`Chain`), stops
-the clip and the test motion fighting over the same root transform, and makes inspector edits
-take effect live by pushing `ApplyConfigurationChanges` each step.
+mode, so the registered chains were never stepped. 0.7.2 adds live inspector tuning by pushing
+`ApplyConfigurationChanges` each step, and stops the clip and the test motion fighting over the
+same root transform. 0.7.3 withdraws 0.7.2's other change — forcing the serialized `isAnimated`
+setting true, which both edited avatars permanently and caused the stuck bones it was meant to
+fix, since `SolveAnimation` then re-bases the chain's rest pose onto the solver's own previous
+output — and replaces it with clip/chain conflict detection, a Reset that re-registers the
+chains, and leaving the Animation window's `AnimationMode` session alone.

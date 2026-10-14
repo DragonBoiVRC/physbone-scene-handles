@@ -12,14 +12,38 @@ list.
 
 ## Status
 
-**0.7.2** fixes a second way the preview could look frozen: when an AnimationClip moved the rig
-the cached `Chain.isAnimated` stayed false and `configHasUpdated` stayed false, so
-`SolveAnimation` never ran and `UpdateChains` never refreshed the `Bone`/`Chain` copies — bones
-held in world space while the root moved under them. The preview now pushes `isAnimated` and
-`configHasUpdated` each step (and stops the clip and the test motion fighting over the same
-root), and inspector edits take effect live via `ApplyConfigurationChanges` instead of waiting
-for a stop/start cycle. Drag Pull, Spring, radius, a limit angle or any distribution curve and
-the running solve updates.
+**0.7.3** fixes the stuck-bone bug properly, and withdraws the part of 0.7.2 that caused it.
+
+0.7.2 forced `isAnimated` true on every previewed component while a clip played. That was wrong
+twice over. `isAnimated` is a **serialized user setting** — the "Is Animated" checkbox on the
+PhysBone inspector — so the preview was permanently editing avatars; the rest-pose snapshot
+restores Transforms, not component fields, so the tick survived Stop. And it caused the freeze it
+was meant to fix: with the flag set, `SolveAnimation` re-bases the chain's rest pose onto the
+bone's current rotation every frame, and on a chain nothing is keyframing, the only thing moving
+those locals is the solver's own output from the previous step. The spring's target followed the
+bone, the restoring force went to zero, and the chain held its bend. The tolerance is 1e-4 per
+quaternion component, which any visible swing clears — hence "occasionally", meaning as soon as
+the avatar moved enough to matter.
+
+> **If you ran 0.7.2:** check **Is Animated** on the PhysBones you previewed with a clip and
+> untick it if you did not set it yourself. `Tools > PhysBone Handles > Log Preview Diagnostics`
+> lists the flag per chain.
+
+In its place:
+
+* **`isAnimated` is never written.** A chain whose bones really are keyframed does need that
+  checkbox, so the preview detects when the active clip animates bones a previewed chain also
+  simulates and names the components — the clip and the solver genuinely fight over those, and
+  the fix is the user's setting, not ours to tick.
+* **Reset actually resets.** The solver does not read bone rotations back at the start of a
+  solve; for any simulated bone it reinstates its own previous value first, so a snapshot
+  restore was overwritten within one step. Reset now re-registers the chains, which is also the
+  button to reach for if one ever does wedge.
+* **The preview no longer hijacks the Animation window.** `AnimationMode` is one global editor
+  state; the preview now only stops a session it started.
+
+Live tuning from 0.7.2 is unchanged: drag Pull, Spring, radius, a limit angle or any
+distribution curve and the running solve updates, via the SDK's own `ApplyConfigurationChanges`.
 
 **0.7.1** fixes the live preview not simulating: the avatar moved under a test motion but the
 bones stayed rigid. The solver is reached through the static `PhysBoneManager.Inst`, which is

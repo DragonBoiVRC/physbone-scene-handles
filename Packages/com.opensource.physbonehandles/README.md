@@ -308,14 +308,56 @@ the constraint and contact passes ran, the test motion moved the root, and nothi
 preview now publishes its manager as `Inst` for the duration and restores the previous value on
 stop.
 
-0.7.2 fixes a second way the same preview could appear frozen: when an AnimationClip moved the
-rig, the cached `Chain.isAnimated` stayed false and `configHasUpdated` stayed false, so
-`SolveAnimation` never ran and `UpdateChains` never refreshed the `Bone`/`Chain` copies. Bones
-held in world space while the root moved under them. The preview now pushes `isAnimated` and
-`configHasUpdated` each step, and stops the clip and the test motion from both writing the same
-avatar root. Inspector sliders also take effect live now — dragging Pull, Spring, radius, a
-limit angle or any distribution curve updates the running solve via `ApplyConfigurationChanges`
-instead of waiting for a stop/start cycle.
+0.7.2 added live inspector tuning, which stands: dragging Pull, Spring, radius, a limit angle or
+any distribution curve updates the running solve via the SDK's own `ApplyConfigurationChanges`
+instead of waiting for a stop/start cycle. It also stopped the clip and the test motion from
+both writing the same avatar root.
+
+But 0.7.2's attempt at the stuck-bone bug was itself the bug, and 0.7.3 withdraws it. It forced
+`isAnimated` true on every previewed component while a clip played, reasoning that
+`SolveAnimation` is gated on that flag. Two things wrong with it:
+
+* `isAnimated` is a **serialized user setting** — the "Is Animated" checkbox, tooltipped
+  "Allows bone transforms to be animated. Each frame bone rest position will be updated
+  according to what was animated." Writing it from a preview edited the avatar permanently: the
+  rest-pose snapshot restores Transforms, not component fields, so the tick survived Stop and
+  changed in-game behaviour.
+
+* It caused the freeze. `SolveAnimation` re-bases the chain's rest pose onto whatever the bone's
+  local rotation currently is:
+
+  ```csharp
+  if (HasChanged(transformData.prevLocalRotation, transformData.localRotation))
+      bone.originalLocalRotation = transformData.localRotation;
+  ```
+
+  On a chain the clip does not animate — every hair or tail chain — the only thing changing
+  those locals is the solver's own output from the previous step. So the spring's target
+  followed the bone, the restoring force went to zero, and the chain held its bend. `HasChanged`
+  tolerates 1e-4 per quaternion component, which any visible swing clears, which is why it
+  showed up only once the avatar started moving.
+
+**If you ran 0.7.2:** check **Is Animated** on the PhysBones you previewed with a clip and untick
+it if you did not set it yourself. `Tools > PhysBone Handles > Log Preview Diagnostics` lists the
+flag per chain, along with bone counts and the solver's live `_Angle`/`_Stretch`/`_Squish`.
+
+0.7.3 puts three things in its place:
+
+* **`isAnimated` is never written.** A chain whose bones really are keyframed does need that
+  checkbox, so `PhysBoneClipOverlap` checks the clip's curve bindings (and, for humanoid clips,
+  the Avatar's own bone map) against each chain's bones and names any component the clip and the
+  solver would fight over. Suggested, not applied — it changes how the avatar behaves in game.
+
+* **Reset re-registers the chains.** Restoring Transforms is not enough on its own: the solver
+  does not read bone rotations back at the start of a solve, it reinstates its own previous value
+  for any simulated bone (`transformData.localRotation = transformData.prevLocalRotation`), so a
+  snapshot restore was overwritten within one step and Reset looked like it did nothing. It now
+  drops and re-adds every chain, which makes it the thing to press if one ever does wedge. This
+  takes two solver steps, because `AddPhysBone` cancels a pending removal of the same component.
+
+* **`AnimationMode` is shared, not seized.** It is one global editor state, also used by the
+  Animation window. The preview now only calls `StopAnimationMode` on a session it started, and
+  says so when it joins one that was already open.
 
 Angle limit handles (`PhysBoneLimitSceneHandles.cs`) had a real bug in 0.5.0: the limit
 orientation was read from a field named `rotation`, which `VRCPhysBone` doesn't have — that

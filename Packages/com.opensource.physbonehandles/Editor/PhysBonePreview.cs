@@ -111,7 +111,7 @@ namespace OpenSource.PhysBoneHandles
             ArmTestMotion();
 
             if (PhysBoneClipPlayback.HasClip && _bones.Count > 0)
-                PhysBoneClipPlayback.Begin(AvatarScopeUtil.ScopeRootOf(_bones[0].transform));
+                PhysBoneClipPlayback.Begin(AvatarScopeUtil.ScopeRootOf(_bones[0].transform), _bones);
 
             _running = true;
             _paused = false;
@@ -159,6 +159,7 @@ namespace OpenSource.PhysBoneHandles
             _colliders.Clear();
             _running = false;
             _paused = false;
+            _reseedPending = false;
             SimulatedSeconds = 0f;
             StepCount = 0;
 
@@ -186,18 +187,86 @@ namespace OpenSource.PhysBoneHandles
 
         // Put every previewed bone back to its rest pose without stopping, so a test motion can
         // be re-run from a known start. The solver keeps running and re-settles from rest.
+        //
+        // Restoring the Transforms is not enough on its own, and this is worth spelling out
+        // because it is counter-intuitive: the solver does not read the bones' current rotation
+        // back at the start of a solve. For any simulated bone it reinstates its own previous
+        // value first -
+        //
+        //     if (bone.isSimulated)
+        //         transformData.localRotation = transformData.prevLocalRotation;
+        //
+        // - so a snapshot restore gets overwritten within one step and Reset looks like it did
+        // nothing. The chain has to be re-registered for the solver to re-capture its state.
+        // That also makes this the button to reach for if a chain ever does get wedged.
         internal static void ResetToRest()
         {
             if (!_running) return;
+
             PhysBonePreviewGrab.ReleaseAll(_manager);
             PhysBonePreviewGrab.ClearPoses(_manager, _bones);
-            RestPose.Restore();
+
+            // Motion and clip first, so the pose the solver re-captures below is the one they
+            // start from rather than wherever they happened to be.
             PhysBoneTestMotion.Reset();
             PhysBoneClipPlayback.Reset();
+            RestPose.Restore();
+
+            // Two zero-length steps carry the re-registration through: the first drains the
+            // removals (so nothing is solved, and the restored pose is left alone), the second
+            // drains the adds, which is where the solver re-reads the rest pose. A zero delta
+            // means `executions` stays 0 and the solve itself moves nothing.
+            ReseedSolver();
+            Step(0f);
+            if (!_running) return;
+            Step(0f);
+            if (!_running) return;
+
             PhysBonePreviewTrail.Clear();
             SimulatedSeconds = 0f;
             StepCount = 0;
             SceneView.RepaintAll();
+        }
+
+        // Drop every chain and register it again, so the solver re-reads the rest pose, bone
+        // lengths and previous-frame state from the Transforms as they are right now.
+        //
+        // This takes two steps, and it has to. Both calls only queue work, and AddPhysBone
+        // explicitly cancels a pending removal of the same component:
+        //
+        //     compsToRemove.RemoveAll(x => x.comp == comp);
+        //
+        // So queueing remove-then-add in one go leaves the chain registered and AddChains then
+        // skips it, because it already holds that chainId - the whole thing becomes a no-op. The
+        // removal has to be drained by a solve first, which is what _reseedPending waits for.
+        private static bool _reseedPending;
+
+        private static void ReseedSolver()
+        {
+            if (_manager == null) return;
+
+            for (int i = 0; i < _bones.Count; i++)
+            {
+                if (_bones[i] != null)
+                    _manager.RemovePhysBone(_bones[i]);
+            }
+            _reseedPending = true;
+        }
+
+        // Second half of ReseedSolver, run after the solve that drained the removals.
+        private static void CompleteReseed()
+        {
+            _reseedPending = false;
+            if (_manager == null) return;
+
+            for (int i = 0; i < _bones.Count; i++)
+            {
+                VRCPhysBone pb = _bones[i];
+                if (pb == null) continue;
+
+                pb.InitTransforms(true);
+                _manager.AddPhysBone(pb);
+            }
         }
 
         // Freeze the pose the bones are in right now and treat it as the thing to compare
@@ -298,9 +367,19 @@ namespace OpenSource.PhysBoneHandles
         internal static void RefreshTestMotion()
         {
             if (!_running) return;
+
+            PhysBonePreviewGrab.ReleaseAll(_manager);
+            PhysBonePreviewGrab.ClearPoses(_manager, _bones);
             PhysBoneTestMotion.Disarm();
             RestPose.Restore();
             ArmTestMotion();
+
+            // Same reason as ResetToRest: the snapshot restore above only moves Transforms, and
+            // the solver would reinstate its own previous pose on the next step without this.
+            ReseedSolver();
+            Step(0f);
+            if (!_running) return;
+            Step(0f);
         }
 
         // Re-enter clip sampling after the clip was swapped mid-preview. Stop first so the
@@ -310,7 +389,7 @@ namespace OpenSource.PhysBoneHandles
             if (!_running) return;
             PhysBoneClipPlayback.Stop();
             if (PhysBoneClipPlayback.HasClip && _bones.Count > 0)
-                PhysBoneClipPlayback.Begin(AvatarScopeUtil.ScopeRootOf(_bones[0].transform));
+                PhysBoneClipPlayback.Begin(AvatarScopeUtil.ScopeRootOf(_bones[0].transform), _bones);
         }
 
         // --- solver lifecycle -------------------------------------------------------------
@@ -586,6 +665,11 @@ namespace OpenSource.PhysBoneHandles
 
                 SimulatedSeconds += deltaTime;
                 StepCount++;
+
+                // The solve above drained the pending removals, so the chains can now be queued
+                // for a fresh registration. See ReseedSolver.
+                if (_reseedPending)
+                    CompleteReseed();
 
                 // After the solve, so the sampled tip is the solved position rather than the
                 // one from the previous step.

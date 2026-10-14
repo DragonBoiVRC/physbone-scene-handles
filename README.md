@@ -12,6 +12,15 @@ list.
 
 ## Status
 
+**0.7.2** fixes a second way the preview could look frozen: when an AnimationClip moved the rig
+the cached `Chain.isAnimated` stayed false and `configHasUpdated` stayed false, so
+`SolveAnimation` never ran and `UpdateChains` never refreshed the `Bone`/`Chain` copies — bones
+held in world space while the root moved under them. The preview now pushes `isAnimated` and
+`configHasUpdated` each step (and stops the clip and the test motion fighting over the same
+root), and inspector edits take effect live via `ApplyConfigurationChanges` instead of waiting
+for a stop/start cycle. Drag Pull, Spring, radius, a limit angle or any distribution curve and
+the running solve updates.
+
 **0.7.1** fixes the live preview not simulating: the avatar moved under a test motion but the
 bones stayed rigid. The solver is reached through the static `PhysBoneManager.Inst`, which is
 only ever assigned in `Awake` — and `PhysBoneManager` has no `[ExecuteAlways]`, so `Awake` does

@@ -1,6 +1,6 @@
 # Feature List
 
-Everything PhysBone Scene Handles does, as of **0.7.1**. Free, open source, cross-platform,
+Everything PhysBone Scene Handles does, as of **0.7.2**. Free, open source, cross-platform,
 no license key and no phone-home check.
 
 Covers four VRChat components: `VRCPhysBone`, `VRCPhysBoneCollider`, `VRCContactSender`,
@@ -199,4 +199,8 @@ live preview subsystem (section 8) is new in 0.7.0 and is compile-verified only 
 layout, the behaviour in motion, grab/pose interaction and the inspector viewport have not been
 click-tested. 0.7.1 fixes the preview not simulating at all: the solver is driven through the
 static `PhysBoneManager.Inst`, which only `Awake` sets and which therefore stays null in edit
-mode, so the registered chains were never stepped.
+mode, so the registered chains were never stepped. 0.7.2 fixes a second preview failure where
+bones froze while a clip played (`isAnimated` / `configHasUpdated` were never pushed, so
+`SolveAnimation` never ran and `UpdateChains` never refreshed the cached `Bone`/`Chain`), stops
+the clip and the test motion fighting over the same root transform, and makes inspector edits
+take effect live by pushing `ApplyConfigurationChanges` each step.

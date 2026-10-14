@@ -547,7 +547,31 @@ namespace OpenSource.PhysBoneHandles
                 // root it is posed on, so applying them the other way round would have the
                 // motion overwritten by the clip's root curves.
                 PhysBoneClipPlayback.Apply(deltaTime);
-                PhysBoneTestMotion.Apply(deltaTime);
+
+                // When a clip is driving the avatar, the test motion must not also write the
+                // same root transform in the same step. Both writers target localPosition /
+                // localRotation of the avatar root; whichever runs second would clobber the
+                // other's curves and the solver would see a root that jitters between the two
+                // poses each frame - the "stuck in place" report. Clip wins when it is
+                // active; the test motion is still armed and resumes as soon as the clip
+                // stops. The same guard lives in PhysBoneClipPlayback.HasClip / IsActive so
+                // the motion panel can reflect it if it wants to.
+                bool clipDriving = PhysBoneClipPlayback.IsActive;
+                if (!clipDriving)
+                    PhysBoneTestMotion.Apply(deltaTime);
+
+                // Live tuning: every step, copy whatever the inspector (ours, VRChat's, the
+                // Animation window, an Undo) wrote into the component back into the solver's
+                // Bone/Chain copies. UpdateChains is gated on configHasUpdated, so without
+                // this an edit to pull, spring, radius, a limit angle or any distribution
+                // curve would sit on the component and never reach the solve. Pushing the
+                // flag is what the SDK itself does on any change; doing it unconditionally
+                // here is cheaper than detecting which field changed and cannot miss an edit.
+                // It also carries isAnimated, which is the other half of the frozen-bones
+                // bug: when a clip starts moving the rig but the chain copy still has
+                // isAnimated == false, SolveAnimation never runs and SolveChain treats the
+                // animation as drift to correct.
+                PhysBoneLiveTuning.Push(_bones, _colliders);
 
                 PhysBoneManager.DebugTimeElapsed = deltaTime;
 

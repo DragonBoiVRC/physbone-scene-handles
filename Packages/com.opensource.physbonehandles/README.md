@@ -308,6 +308,15 @@ the constraint and contact passes ran, the test motion moved the root, and nothi
 preview now publishes its manager as `Inst` for the duration and restores the previous value on
 stop.
 
+0.7.2 fixes a second way the same preview could appear frozen: when an AnimationClip moved the
+rig, the cached `Chain.isAnimated` stayed false and `configHasUpdated` stayed false, so
+`SolveAnimation` never ran and `UpdateChains` never refreshed the `Bone`/`Chain` copies. Bones
+held in world space while the root moved under them. The preview now pushes `isAnimated` and
+`configHasUpdated` each step, and stops the clip and the test motion from both writing the same
+avatar root. Inspector sliders also take effect live now — dragging Pull, Spring, radius, a
+limit angle or any distribution curve updates the running solve via `ApplyConfigurationChanges`
+instead of waiting for a stop/start cycle.
+
 Angle limit handles (`PhysBoneLimitSceneHandles.cs`) had a real bug in 0.5.0: the limit
 orientation was read from a field named `rotation`, which `VRCPhysBone` doesn't have — that
 one belongs to the *collider*. The PhysBone's field is `limitRotation`, and it serializes as

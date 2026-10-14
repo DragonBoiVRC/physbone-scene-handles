@@ -12,6 +12,12 @@ list.
 
 ## Status
 
+**0.7.4** fixes bones sticking on the *second* preview. Stop used to queue chain removal and dispose
+the manager without running a solve, so each component kept pointing into the dead manager (its
+root definition, group number and shape). The next Start registered chains that were never solved.
+Stop now runs one zero-length solve to drain the removals, and group numbers are reset on Stop and
+Start. Compile-verified only.
+
 **0.7.3** fixes the stuck-bone bug properly, and withdraws the part of 0.7.2 that caused it.
 
 0.7.2 forced `isAnimated` true on every previewed component while a clip played. That was wrong

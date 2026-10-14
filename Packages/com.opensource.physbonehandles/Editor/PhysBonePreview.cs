@@ -470,6 +470,7 @@ namespace OpenSource.PhysBoneHandles
             foreach (VRCPhysBoneCollider col in _colliders)
             {
                 if (col == null) continue;
+                col.ExecutionGroup = -1;
                 col.InitShape();
                 _manager.AddCollider(col);
             }
@@ -486,6 +487,7 @@ namespace OpenSource.PhysBoneHandles
 
                 // Populates pb.bones from the transform hierarchy. AddChains() calls this too,
                 // but only reaches it after the chainId check above has passed.
+                pb.ExecutionGroup = -1;
                 pb.InitTransforms(true);
                 _manager.AddPhysBone(pb);
             }
@@ -541,6 +543,36 @@ namespace OpenSource.PhysBoneHandles
                 }
 
                 _manager.CompleteJob();
+
+                // RemovePhysBone/RemoveCollider only queue. Disposing without a solve in between
+                // leaves state on the components that points into this manager's buffers - the
+                // PhysBoneRootDefinition in `root` (still holding a chain count and a buffer
+                // index), the shape, the group assignment. The next Start() gets a brand-new
+                // manager, finds a component that still claims a place in the old one, and the
+                // chain is registered but never solved: the "stuck on the second preview" bug.
+                // One zero-length solve runs the SDK's own RemoveChains/RemoveColliders cleanup.
+                try
+                {
+                    PhysBoneManager.DebugTimeElapsed = 0f;
+                    VRCDynamicsScheduler.PreScheduleDynamics(true);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[PhysBone Handles] Teardown solve failed: {e.GetType().Name}: {e.Message}");
+                }
+
+                // Group assignment lives on the component and RemoveChains does not clear it.
+                // A stale value skips UpdateExecutionGroupsForRoot on the next registration.
+                foreach (VRCPhysBone pb in _bones)
+                {
+                    if (pb != null)
+                        pb.ExecutionGroup = -1;
+                }
+                foreach (VRCPhysBoneCollider col in _colliders)
+                {
+                    if (col != null)
+                        col.ExecutionGroup = -1;
+                }
 
                 // Only dispose a manager we created. A pre-existing one may belong to a play
                 // session or another tool, and disposing it would break them.

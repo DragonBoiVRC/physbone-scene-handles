@@ -1,6 +1,6 @@
 # Feature List
 
-Everything PhysBone Scene Handles does, as of **0.7.4**. Free, open source, cross-platform,
+Everything PhysBone Scene Handles does, as of **0.8.0**. Free, open source, cross-platform,
 no license key and no phone-home check.
 
 Covers four VRChat components: `VRCPhysBone`, `VRCPhysBoneCollider`, `VRCContactSender`,
@@ -193,6 +193,17 @@ clean again afterwards.
   curve thumbnail cannot tell you. Works with the preview stopped too.
 
 ---
+
+## 9. Quick-add PhysBone parameters to FX
+
+A **+** button beside the PhysBone's **Parameter** field (custom inspector). With a prefix
+typed, such as `Contacts/Flash`, it lists `Contacts/Flash_IsGrabbed` and `_IsPosed` (Bool) and
+`_Angle`, `_Stretch`, `_Squish` (Float), or adds all missing ones at once.
+
+- Adds to the FX controller on the avatar's VRC Avatar Descriptor. Names already there are greyed out.
+- Works with several PhysBones selected; each distinct avatar FX controller is updated once.
+- Undoable. Tells you if there is no avatar, no FX controller, or the controller is a read-only package asset.
+- Adds animator parameters only. It does not touch the Expressions Parameters asset.
 
 ## Requirements
 

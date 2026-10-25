@@ -335,7 +335,7 @@ namespace OpenSource.PhysBoneHandles
             {
                 InspectorUI.Optional(P("isAnimated"), "Is Animated");
                 InspectorUI.Optional(P("resetWhenDisabled"), "Reset When Disabled");
-                InspectorUI.Optional(P("parameter"), "Parameter");
+                PhysBoneParameterUtility.DrawParameterRow(serializedObject, P("parameter"), "Parameter");
             }
         }
 

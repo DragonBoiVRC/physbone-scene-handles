@@ -12,6 +12,8 @@ list.
 
 ## Status
 
+**0.8.0** adds a **+** beside the PhysBone Parameter field that adds the `_IsGrabbed`, `_IsPosed`, `_Angle`, `_Stretch` and `_Squish` parameters to the avatar's FX controller. Compile-checked only; not click-tested.
+
 **0.7.4** fixes bones sticking on the *second* preview. Stop used to queue chain removal and dispose
 the manager without running a solve, so each component kept pointing into the dead manager (its
 root definition, group number and shape). The next Start registered chains that were never solved.

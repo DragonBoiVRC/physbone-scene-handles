@@ -58,8 +58,6 @@ namespace OpenSource.PhysBoneHandles
         private static float _accumulator;
         private static bool _prevDisableTiming;
         private static float _prevDebugTimeElapsed;
-        private static PhysBoneManager _prevInst;
-        private static bool _tookOverInst;
 
         internal static bool IsRunning => _running;
         internal static bool IsPaused => _paused;
@@ -427,26 +425,6 @@ namespace OpenSource.PhysBoneHandles
             if (_manager == null)
                 return false;
 
-            // The step that makes any of this move.
-            //
-            // PreScheduleDynamics does not take a manager - it reads the static
-            // PhysBoneManager.Inst and skips the PhysBone pass entirely when that is null:
-            //
-            //     if (PhysBoneManager.Inst != null)
-            //         dependsOn = PhysBoneManager.Inst.ScheduleExecutionJob(dependsOn);
-            //
-            // Inst is assigned in Awake, which (no [ExecuteAlways]) never runs in edit mode.
-            // So a manager that is constructed, Init()ed and registered with is still never
-            // stepped: the constraint and contact passes run, the avatar moves under a test
-            // motion, and the bones stay rigid. Publishing Inst ourselves is what connects
-            // the registered chains to the solve. Restored on stop.
-            if (!ReferenceEquals(PhysBoneManager.Inst, _manager))
-            {
-                _prevInst = PhysBoneManager.Inst;
-                PhysBoneManager.Inst = _manager;
-                _tookOverInst = true;
-            }
-
             _prevDisableTiming = PhysBoneManager.DisableTiming;
             _prevDebugTimeElapsed = PhysBoneManager.DebugTimeElapsed;
 
@@ -525,6 +503,30 @@ namespace OpenSource.PhysBoneHandles
             pb.chainId = new ChainId(BitConverter.ToUInt64(guid, 0), BitConverter.ToUInt64(guid, 8));
         }
 
+        // PreScheduleDynamics takes no manager: it reads the static PhysBoneManager.Inst and
+        // skips the PhysBone pass when that is null. Inst is set in Awake, which never runs in
+        // edit mode, so we publish ours - but only for the duration of our own blocking solve.
+        // Left published, the SDK's player-loop hook (SystemsPlayerLoop.OnAvatarDynamicsPreSchedule,
+        // which Unity also ticks in edit mode on scene-view repaints) schedules a second,
+        // never-completed solve on our manager: "UpdateRootsJob ... must include it as a
+        // dependency", and later a ReadBoneJob still running when the manager is disposed.
+        private static void SolveOnce()
+        {
+            PhysBoneManager prev = PhysBoneManager.Inst;
+            bool swap = !ReferenceEquals(prev, _manager);
+            if (swap)
+                PhysBoneManager.Inst = _manager;
+            try
+            {
+                VRCDynamicsScheduler.PreScheduleDynamics(true);
+            }
+            finally
+            {
+                if (swap)
+                    PhysBoneManager.Inst = prev;
+            }
+        }
+
         private static void DestroyManager()
         {
             if (_manager != null)
@@ -554,7 +556,7 @@ namespace OpenSource.PhysBoneHandles
                 try
                 {
                     PhysBoneManager.DebugTimeElapsed = 0f;
-                    VRCDynamicsScheduler.PreScheduleDynamics(true);
+                    SolveOnce();
                 }
                 catch (Exception e)
                 {
@@ -576,22 +578,21 @@ namespace OpenSource.PhysBoneHandles
 
                 // Only dispose a manager we created. A pre-existing one may belong to a play
                 // session or another tool, and disposing it would break them.
+                // Dispose throws InvalidOperationException if any scheduled job (ReadBoneJob)
+                // is still outstanding, so complete once more first - the teardown solve above
+                // may have thrown part-way after scheduling.
+                try { _manager.CompleteJob(); }
+                catch (Exception e) { Debug.LogWarning($"[PhysBone Handles] CompleteJob before dispose failed: {e.Message}"); }
+
                 if (_host != null)
-                    _manager.Dispose();
+                {
+                    try { _manager.Dispose(); }
+                    catch (Exception e) { Debug.LogWarning($"[PhysBone Handles] Manager dispose failed: {e.Message}"); }
+                }
             }
 
             PhysBoneManager.DisableTiming = _prevDisableTiming;
             PhysBoneManager.DebugTimeElapsed = _prevDebugTimeElapsed;
-
-            // Put Inst back exactly as it was. Leaving ours published would point the SDK's
-            // own scheduler at a manager we are about to destroy.
-            if (_tookOverInst)
-            {
-                if (ReferenceEquals(PhysBoneManager.Inst, _manager))
-                    PhysBoneManager.Inst = _prevInst;
-                _tookOverInst = false;
-                _prevInst = null;
-            }
 
             if (_host != null)
             {
@@ -693,7 +694,7 @@ namespace OpenSource.PhysBoneHandles
                 // Schedules the constraint + PhysBone + contact passes and blocks until they
                 // finish. finalizeImmediately is what makes this usable outside the player
                 // loop: without it the jobs are scheduled and nothing ever completes them.
-                VRCDynamicsScheduler.PreScheduleDynamics(true);
+                SolveOnce();
 
                 SimulatedSeconds += deltaTime;
                 StepCount++;

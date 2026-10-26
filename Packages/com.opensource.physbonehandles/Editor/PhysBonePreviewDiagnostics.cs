@@ -62,10 +62,6 @@ namespace OpenSource.PhysBoneHandles
               .Append("   Rate: ").Append(PhysBonePreview.RefreshRate).Append(" Hz")
               .Append(PhysBonePreview.IsPaused ? "   (paused)" : string.Empty).Append('\n');
 
-            sb.Append("  Solver published as PhysBoneManager.Inst: ")
-              .Append(ReferenceEquals(PhysBoneManager.Inst, PhysBonePreview.Manager) ? "yes" : "NO - the solve will not reach these chains")
-              .Append('\n');
-
             sb.Append("  Motion: ").Append(PhysBoneTestMotion.Describe(PhysBoneTestMotion.Current));
             if (PhysBoneClipPlayback.HasClip)
             {
